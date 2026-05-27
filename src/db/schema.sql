@@ -24,13 +24,14 @@ CREATE TABLE IF NOT EXISTS devices (
 CREATE TABLE IF NOT EXISTS motion_events (
   id              SERIAL PRIMARY KEY,
   device_id       TEXT NOT NULL,
-  event_type      TEXT NOT NULL,         -- e.g. motion_detected
-  sub_type        TEXT,                  -- e.g. human, animal, vehicle
+  event_type      TEXT NOT NULL,
+  sub_type        TEXT,
   event_timestamp TIMESTAMPTZ NOT NULL,
-  clip_url        TEXT,                  -- S3 URL of the downloaded clip
+  clip_url        TEXT,
+  ai_summary      TEXT,
   notified        BOOLEAN DEFAULT FALSE,
   created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_motion_events_device ON motion_events(device_id);
+CREATE INDEX IF NOT EXISTS idx_motion_events_device    ON motion_events(device_id);
 CREATE INDEX IF NOT EXISTS idx_motion_events_timestamp ON motion_events(event_timestamp);
