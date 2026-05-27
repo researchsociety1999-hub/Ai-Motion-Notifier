@@ -13,10 +13,10 @@ A production-ready Node.js/Express backend that listens for Ring camera motion e
 - ✅ Rate limiting on all routes
 - ✅ Security headers via Helmet
 - ✅ Global error handler
-- ✅ Railway one-click deploy config
+- ✅ Fly.io one-command deploy (with interactive setup script)
 
 ## Stack
-- **Runtime:** Node.js 18+
+- **Runtime:** Node.js 20 (Alpine Docker)
 - **Framework:** Express
 - **Database:** PostgreSQL (via `pg`)
 - **Storage:** AWS S3
@@ -24,6 +24,7 @@ A production-ready Node.js/Express backend that listens for Ring camera motion e
 - **AI summaries:** OpenAI GPT-4o-mini (optional)
 - **Scheduler:** node-cron
 - **Security:** Helmet, express-rate-limit, HMAC verification
+- **Deploy:** Fly.io
 
 ## Project Structure
 ```
@@ -48,73 +49,89 @@ ring-ai-motion-notifier/
 │       ├── requireSecret.js    # Admin route protection
 │       ├── rateLimiter.js      # Rate limiting
 │       └── errorHandler.js     # Global error handler
-├── railway.json                # Railway deploy config
-├── Procfile                    # Heroku/Render deploy
+├── Dockerfile                  # Production Docker image
+├── fly.toml                    # Fly.io app config
+├── scripts/deploy-fly.sh       # One-command Fly.io setup + deploy
+├── .dockerignore
 ├── .env.example
 ├── package.json
 └── README.md
 ```
 
-## Setup
+## Deploy to Fly.io (Recommended)
 
-### 1. Clone and install
+### Option A — Automated (one command)
 ```bash
 git clone https://github.com/researchsociety1999-hub/ring-ai-motion-notifier
 cd ring-ai-motion-notifier
-npm install
+chmod +x scripts/deploy-fly.sh
+./scripts/deploy-fly.sh
 ```
+The script will:
+- Install `flyctl` if not present
+- Create the app and PostgreSQL database on Fly.io
+- Prompt you for all secrets interactively
+- Deploy the Docker container
+- Run the DB schema automatically
+- Print your live URL and next steps
 
-### 2. Configure environment variables
-```bash
-cp .env.example .env
-# Fill in all values — see .env.example for details
-```
-
-Generate a secure admin key:
-```bash
-openssl rand -hex 32
-```
-
-### 3. Set up the database
-```bash
-psql -U youruser -d yourdb -f src/db/schema.sql
-```
-
-### 4. Run locally
-```bash
-npm run dev
-```
-
-### 5. Expose to the internet (local dev only)
-```bash
-npx ngrok http 3000
-# Copy the HTTPS URL → paste as Webhook URL in Ring Developer Portal
-```
-
-## Deploy to Railway (Recommended)
-
-1. Go to [railway.app](https://railway.app) → **New Project → Deploy from GitHub repo**
-2. Select `ring-ai-motion-notifier`
-3. Add a **PostgreSQL** plugin (auto-injects `DATABASE_URL`)
-4. Go to **Variables** → add all values from `.env.example`
-5. Railway builds and deploys → you get a stable HTTPS URL
-6. Register your URL in the Ring Developer Portal:
-   - **Webhook URL:** `https://your-app.up.railway.app/webhooks/ring`
-   - **Token Exchange URL:** `https://your-app.up.railway.app/oauth/callback`
-
-## Calling Protected Routes
-
-Admin routes require the `x-admin-key` header:
+### Option B — Manual
 
 ```bash
-# Link Ring account
-curl https://your-app.up.railway.app/oauth/link \
+# 1. Install flyctl
+curl -L https://fly.io/install.sh | sh
+
+# 2. Login
+flyctl auth login
+
+# 3. Create app
+flyctl apps create ring-ai-motion-notifier
+
+# 4. Create and attach PostgreSQL
+flyctl postgres create --name ring-notifier-db --region iad
+flyctl postgres attach ring-notifier-db --app ring-ai-motion-notifier
+
+# 5. Set secrets
+flyctl secrets set \
+  ADMIN_SECRET_KEY=your_secret \
+  RING_CLIENT_ID=xxx \
+  RING_CLIENT_SECRET=xxx \
+  RING_HMAC_KEY=xxx \
+  RING_OAUTH_URL=https://oauth.ring.com/oauth/token \
+  RING_API_BASE=https://api.amazonvision.com \
+  AWS_ACCESS_KEY_ID=xxx \
+  AWS_SECRET_ACCESS_KEY=xxx \
+  AWS_REGION=us-east-1 \
+  S3_BUCKET_NAME=your-bucket \
+  FIREBASE_PROJECT_ID=xxx \
+  FIREBASE_CLIENT_EMAIL=xxx \
+  FIREBASE_PRIVATE_KEY="xxx"
+
+# 6. Deploy
+flyctl deploy
+
+# 7. Run DB schema
+flyctl ssh console -C "psql \$DATABASE_URL -f /app/src/db/schema.sql"
+```
+
+## After Deploy
+
+```bash
+# Check health
+curl https://ring-ai-motion-notifier.fly.dev/health
+
+# Link Ring account (opens browser for OAuth)
+curl https://ring-ai-motion-notifier.fly.dev/oauth/link \
   -H "x-admin-key: your_admin_secret"
 
 # Sync devices
-curl https://your-app.up.railway.app/devices \
+curl https://ring-ai-motion-notifier.fly.dev/devices \
   -H "x-admin-key: your_admin_secret"
 ```
+
+Register these URLs in the **Ring Developer Portal**:
+- **Webhook URL:** `https://ring-ai-motion-notifier.fly.dev/webhooks/ring`
+- **Token Exchange URL:** `https://ring-ai-motion-notifier.fly.dev/oauth/callback`
 
 ## Motion Event Flow
 
@@ -137,6 +154,25 @@ Sends push notification with summary + clip URL
 ## Health Check
 
 ```bash
-curl https://your-app.up.railway.app/health
+curl https://ring-ai-motion-notifier.fly.dev/health
 # { "status": "ok", "uptime": 3600, "timestamp": "..." }
 ```
+
+## Local Development
+
+```bash
+npm install
+cp .env.example .env   # fill in your values
+npm run dev
+
+# Expose locally for webhook testing
+npx ngrok http 3000
+```
+
+## Fly.io Regions
+Change `primary_region` in `fly.toml` to the closest region:
+- `iad` — US East (Virginia)
+- `lax` — US West (Los Angeles)
+- `lhr` — Europe (London)
+- `nrt` — Asia Pacific (Tokyo)
+- `syd` — Australia (Sydney)
