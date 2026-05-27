@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ring AI — Motion Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&display=swap" rel="stylesheet">
+  <style>
+    /* ── Design Tokens ────────────────────────────────── */
+    :root {
+      --text-xs:   clamp(0.75rem, 0.7rem + 0.25vw, 0.875rem);
+      --text-sm:   clamp(0.875rem, 0.8rem + 0.35vw, 1rem);
+      --text-base: clamp(1rem, 0.95rem + 0.25vw, 1.125rem);
+      --text-lg:   clamp(1.125rem, 1rem + 0.75vw, 1.5rem);
+      --text-xl:   clamp(1.5rem, 1.2rem + 1.25vw, 2.25rem);
+      --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem;
+      --space-4: 1rem;    --space-5: 1.25rem; --space-6: 1.5rem;
+      --space-8: 2rem;    --space-10: 2.5rem; --space-12: 3rem;
+      --radius-sm: 0.375rem; --radius-md: 0.5rem;
+      --radius-lg: 0.75rem;  --radius-full: 9999px;
+      --transition: 180ms cubic-bezier(0.16, 1, 0.3, 1);
+      --font-body: 'Inter', system-ui, sans-serif;
+    }
+
+    /* Dark mode (default) */
+    [data-theme="dark"] {
+      --bg:             #0f0f10;
+      --surface:        #161618;
+      --surface-2:      #1c1c1f;
+      --surface-3:      #232326;
+      --border:         rgba(255,255,255,0.08);
+      --text:           #e8e8ea;
+      --text-muted:     #8a8a90;
+      --text-faint:     #4a4a52;
+      --primary:        #4f98a3;
+      --primary-dim:    rgba(79,152,163,0.15);
+      --success:        #6daa45;
+      --success-dim:    rgba(109,170,69,0.15);
+      --warning:        #e8af34;
+      --warning-dim:    rgba(232,175,52,0.15);
+      --error:          #dd6974;
+      --error-dim:      rgba(221,105,116,0.15);
+      --shadow:         0 4px 16px rgba(0,0,0,0.4);
+    }
+
+    /* Light mode */
+    [data-theme="light"] {
+      --bg:             #f7f6f2;
+      --surface:        #ffffff;
+      --surface-2:      #f3f0ec;
+      --surface-3:      #edeae5;
+      --border:         rgba(0,0,0,0.08);
+      --text:           #28251d;
+      --text-muted:     #7a7974;
+      --text-faint:     #bab9b4;
+      --primary:        #01696f;
+      --primary-dim:    rgba(1,105,111,0.1);
+      --success:        #437a22;
+      --success-dim:    rgba(67,122,34,0.1);
+      --warning:        #d19900;
+      --warning-dim:    rgba(209,153,0,0.1);
+      --error:          #a12c7b;
+      --error-dim:      rgba(161,44,123,0.1);
+      --shadow:         0 4px 16px rgba(0,0,0,0.08);
+    }
+
+    /* ── Reset + Base ─────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { -webkit-font-smoothing: antialiased; scroll-behavior: smooth; }
+    body {
+      font-family: var(--font-body);
+      font-size: var(--text-sm);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      display: flex;
+    }
+    button { cursor: pointer; background: none; border: none; font: inherit; color: inherit; }
+    a { color: inherit; text-decoration: none; }
+    img { display: block; max-width: 100%; }
+
+    /* ── Login Screen ─────────────────────────────────── */
+    #login-screen {
+      position: fixed; inset: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--bg);
+    }
+    .login-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: var(--space-8);
+      width: 100%; max-width: 380px;
+      box-shadow: var(--shadow);
+    }
+    .login-logo {
+      display: flex; align-items: center; gap: var(--space-3);
+      margin-bottom: var(--space-8);
+    }
+    .login-logo svg { color: var(--primary); }
+    .login-logo span { font-size: var(--text-lg); font-weight: 600; letter-spacing: -0.02em; }
+    .login-card h2 { font-size: var(--text-base); font-weight: 600; margin-bottom: var(--space-2); }
+    .login-card p { font-size: var(--text-xs); color: var(--text-muted); margin-bottom: var(--space-6); }
+    .field { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-4); }
+    .field label { font-size: var(--text-xs); font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .field input {
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: var(--radius-md); padding: var(--space-3) var(--space-4);
+      font-size: var(--text-sm); color: var(--text);
+      transition: border-color var(--transition), box-shadow var(--transition);
+      width: 100%;
+    }
+    .field input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-dim); }
+    .btn-primary {
+      width: 100%; padding: var(--space-3) var(--space-4);
+      background: var(--primary); color: #fff;
+      border-radius: var(--radius-md); font-size: var(--text-sm);
+      font-weight: 600; transition: opacity var(--transition);
+    }
+    .btn-primary:hover { opacity: 0.88; }
+    .login-error {
+      font-size: var(--text-xs); color: var(--error);
+      background: var(--error-dim); border-radius: var(--radius-sm);
+      padding: var(--space-2) var(--space-3); margin-top: var(--space-3);
+      display: none;
+    }
+
+    /* ── App Shell ────────────────────────────────────── */
+    #app { display: none; width: 100%; }
+
+    /* Sidebar */
+    .sidebar {
+      width: 220px; min-height: 100dvh;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      position: sticky; top: 0; height: 100dvh;
+      flex-shrink: 0;
+    }
+    .sidebar-logo {
+      display: flex; align-items: center; gap: var(--space-3);
+      padding: var(--space-5) var(--space-4);
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-logo svg { color: var(--primary); }
+    .sidebar-logo span { font-size: var(--text-base); font-weight: 700; letter-spacing: -0.02em; }
+    .sidebar-nav { flex: 1; padding: var(--space-3) 0; }
+    .nav-section-label {
+      font-size: 0.65rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--text-faint);
+      padding: var(--space-4) var(--space-4) var(--space-2);
+    }
+    .nav-item {
+      display: flex; align-items: center; gap: var(--space-3);
+      padding: var(--space-2) var(--space-4);
+      border-radius: var(--radius-md);
+      margin: 0 var(--space-2);
+      font-size: var(--text-sm); font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: background var(--transition), color var(--transition);
+    }
+    .nav-item:hover { background: var(--surface-2); color: var(--text); }
+    .nav-item.active { background: var(--primary-dim); color: var(--primary); }
+    .nav-item svg { flex-shrink: 0; opacity: 0.8; }
+    .sidebar-footer {
+      padding: var(--space-4);
+      border-top: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .sidebar-footer span { font-size: var(--text-xs); color: var(--text-muted); }
+
+    /* Main area */
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 var(--space-6);
+      height: 56px; flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      position: sticky; top: 0; z-index: 10;
+    }
+    .topbar-title { font-size: var(--text-base); font-weight: 600; }
+    .topbar-actions { display: flex; align-items: center; gap: var(--space-3); }
+    .icon-btn {
+      width: 36px; height: 36px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: var(--radius-md);
+      color: var(--text-muted);
+      transition: background var(--transition), color var(--transition);
+    }
+    .icon-btn:hover { background: var(--surface-2); color: var(--text); }
+    .badge {
+      display: inline-flex; align-items: center;
+      padding: 2px var(--space-2);
+      border-radius: var(--radius-full);
+      font-size: 0.65rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .badge-success { background: var(--success-dim); color: var(--success); }
+    .badge-warning { background: var(--warning-dim); color: var(--warning); }
+    .badge-error   { background: var(--error-dim);   color: var(--error); }
+    .badge-primary { background: var(--primary-dim); color: var(--primary); }
+    .badge-muted   { background: var(--surface-3);   color: var(--text-muted); }
+
+    /* Content area */
+    .content {
+      flex: 1; overflow-y: auto;
+      padding: var(--space-6);
+    }
+
+    /* Pages */
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* KPI row */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: var(--space-4);
+      margin-bottom: var(--space-6);
+    }
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: var(--space-5);
+    }
+    .kpi-label { font-size: var(--text-xs); color: var(--text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: var(--space-2); }
+    .kpi-value { font-size: var(--text-xl); font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
+    .kpi-sub { font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-1); }
+    .kpi-up   { color: var(--success); }
+    .kpi-down { color: var(--error); }
+
+    /* Section header */
+    .section-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: var(--space-4);
+    }
+    .section-title { font-size: var(--text-base); font-weight: 600; }
+    .btn-ghost {
+      padding: var(--space-2) var(--space-3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      font-size: var(--text-xs); font-weight: 500; color: var(--text-muted);
+      transition: background var(--transition), color var(--transition);
+    }
+    .btn-ghost:hover { background: var(--surface-2); color: var(--text); }
+
+    /* Events table */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      text-align: left;
+      font-size: var(--text-xs); font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--text-muted);
+      padding: var(--space-3) var(--space-4);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    tbody tr {
+      border-bottom: 1px solid var(--border);
+      transition: background var(--transition);
+    }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--surface-2); }
+    tbody td {
+      padding: var(--space-3) var(--space-4);
+      font-size: var(--text-sm);
+      font-variant-numeric: tabular-nums;
+      vertical-align: middle;
+    }
+    .td-summary { max-width: 280px; color: var(--text-muted); font-size: var(--text-xs); }
+    .td-summary span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .clip-btn {
+      display: inline-flex; align-items: center; gap: var(--space-2);
+      padding: var(--space-1) var(--space-3);
+      background: var(--primary-dim); color: var(--primary);
+      border-radius: var(--radius-full);
+      font-size: var(--text-xs); font-weight: 500;
+      transition: opacity var(--transition);
+    }
+    .clip-btn:hover { opacity: 0.75; }
+    .no-clip { color: var(--text-faint); font-size: var(--text-xs); }
+
+    /* Filter bar */
+    .filter-bar {
+      display: flex; align-items: center; gap: var(--space-3);
+      padding: var(--space-3) var(--space-4);
+      border-bottom: 1px solid var(--border);
+    }
+    .filter-bar select, .filter-bar input {
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: var(--radius-md); padding: var(--space-2) var(--space-3);
+      font-size: var(--text-xs); color: var(--text); font-family: var(--font-body);
+    }
+    .filter-bar input { flex: 1; }
+    .filter-bar select:focus, .filter-bar input:focus { outline: none; border-color: var(--primary); }
+
+    /* Device cards */
+    .device-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: var(--space-4);
+    }
+    .device-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: var(--space-5);
+      display: flex; flex-direction: column; gap: var(--space-3);
+    }
+    .device-header { display: flex; align-items: flex-start; justify-content: space-between; }
+    .device-name { font-weight: 600; font-size: var(--text-sm); }
+    .device-id { font-size: var(--text-xs); color: var(--text-faint); font-family: monospace; }
+    .device-meta { display: flex; flex-direction: column; gap: var(--space-1); }
+    .device-meta span { font-size: var(--text-xs); color: var(--text-muted); }
+    .device-stats {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: var(--space-2); margin-top: var(--space-2);
+    }
+    .device-stat {
+      background: var(--surface-2);
+      border-radius: var(--radius-sm);
+      padding: var(--space-2) var(--space-3);
+    }
+    .device-stat-val { font-size: var(--text-sm); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .device-stat-lbl { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* Modal / Clip viewer */
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: rgba(0,0,0,0.75); backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+      padding: var(--space-4);
+      opacity: 0; pointer-events: none;
+      transition: opacity 220ms ease;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: auto; }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      width: 100%; max-width: 640px;
+      box-shadow: var(--shadow);
+      transform: translateY(12px);
+      transition: transform 220ms cubic-bezier(0.16,1,0.3,1);
+    }
+    .modal-overlay.open .modal { transform: translateY(0); }
+    .modal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: var(--space-4) var(--space-5);
+      border-bottom: 1px solid var(--border);
+    }
+    .modal-title { font-size: var(--text-sm); font-weight: 600; }
+    .modal-body { padding: var(--space-5); }
+    .modal-video {
+      width: 100%; aspect-ratio: 16/9;
+      background: #000; border-radius: var(--radius-md);
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: var(--space-4); overflow: hidden;
+    }
+    .modal-video video { width: 100%; height: 100%; object-fit: cover; }
+    .modal-video-placeholder {
+      display: flex; flex-direction: column; align-items: center; gap: var(--space-3);
+      color: var(--text-muted);
+    }
+    .modal-meta { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+    .modal-meta-item {}
+    .modal-meta-label { font-size: var(--text-xs); color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+    .modal-meta-val { font-size: var(--text-sm); }
+    .modal-summary {
+      margin-top: var(--space-4);
+      background: var(--surface-2); border-radius: var(--radius-md);
+      padding: var(--space-3) var(--space-4);
+      font-size: var(--text-xs); color: var(--text-muted); line-height: 1.6;
+    }
+    .modal-summary strong { color: var(--primary); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: var(--space-1); }
+
+    /* Toast */
+    .toast-container {
+      position: fixed; bottom: var(--space-6); right: var(--space-6);
+      z-index: 300; display: flex; flex-direction: column; gap: var(--space-2);
+      pointer-events: none;
+    }
+    .toast {
+      background: var(--surface-3); border: 1px solid var(--border);
+      border-radius: var(--radius-md); padding: var(--space-3) var(--space-4);
+      font-size: var(--text-xs); max-width: 300px;
+      box-shadow: var(--shadow);
+      animation: slideIn 200ms cubic-bezier(0.16,1,0.3,1) forwards;
+    }
+    @keyframes slideIn { from { opacity:0; transform: translateX(20px); } to { opacity:1; transform: translateX(0); } }
+
+    /* Loading skeleton */
+    @keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+    .skeleton {
+      background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s ease-in-out infinite;
+      border-radius: var(--radius-sm);
+    }
+
+    /* Status dot */
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .dot-success { background: var(--success); }
+    .dot-warning { background: var(--warning); }
+    .dot-error   { background: var(--error); }
+    .dot-muted   { background: var(--text-faint); }
+
+    /* Mobile */
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .content { padding: var(--space-4); }
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+      .modal-meta { grid-template-columns: 1fr; }
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<!-- ── Login Screen ──────────────────────────────────────── -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">
+      <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+        <rect width="32" height="32" rx="8" fill="currentColor" opacity="0.12"/>
+        <circle cx="16" cy="12" r="5" stroke="currentColor" stroke-width="2"/>
+        <path d="M8 26c0-4.418 3.582-8 8-8s8 3.582 8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="22" cy="10" r="3" fill="currentColor" opacity="0.6"/>
+        <path d="M25 8l2-2M27 10h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <span>Ring AI</span>
+    </div>
+    <h2>Sign in to Dashboard</h2>
+    <p>Enter your admin API URL and secret key to continue.</p>
+    <div class="field">
+      <label>Backend URL</label>
+      <input type="url" id="login-url" placeholder="https://ring-ai-motion-notifier.fly.dev" />
+    </div>
+    <div class="field">
+      <label>Admin Secret Key</label>
+      <input type="password" id="login-key" placeholder="your_admin_secret_key" />
+    </div>
+    <button class="btn-primary" onclick="handleLogin()">Connect</button>
+    <div class="login-error" id="login-error">Could not connect. Check your URL and key.</div>
+  </div>
+</div>
+
+<!-- ── App Shell ─────────────────────────────────────────── -->
+<div id="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
+        <rect width="32" height="32" rx="8" fill="currentColor" opacity="0.12"/>
+        <circle cx="16" cy="12" r="5" stroke="currentColor" stroke-width="2"/>
+        <path d="M8 26c0-4.418 3.582-8 8-8s8 3.582 8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="22" cy="10" r="3" fill="currentColor" opacity="0.6"/>
+        <path d="M25 8l2-2M27 10h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <span>Ring AI</span>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section-label">Monitor</div>
+      <div class="nav-item active" onclick="showPage('overview')" data-page="overview">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Overview
+      </div>
+      <div class="nav-item" onclick="showPage('events')" data-page="events">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        Motion Events
+        <span class="badge badge-error" id="unread-badge" style="margin-left:auto">0</span>
+      </div>
+      <div class="nav-item" onclick="showPage('devices')" data-page="devices">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 10l4.553-2.069A1 1 0 0121 8.906V17a1 1 0 01-1.447.894L15 16M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>
+        Devices
+      </div>
+      <div class="nav-section-label" style="margin-top: var(--space-4)">System</div>
+      <div class="nav-item" onclick="showPage('settings')" data-page="settings">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+        Settings
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      <span id="connection-label">Connected</span>
+      <span class="dot dot-success" id="connection-dot"></span>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-title" id="page-title">Overview</div>
+      <div class="topbar-actions">
+        <button class="icon-btn" title="Refresh" onclick="refreshCurrentPage()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+        </button>
+        <button class="icon-btn" title="Toggle theme" onclick="toggleTheme()" id="theme-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+        <button class="icon-btn" title="Sign out" onclick="signOut()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <!-- Overview Page -->
+      <div class="page active" id="page-overview">
+        <div class="kpi-grid" id="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-label">Total Events (24h)</div>
+            <div class="kpi-value" id="kpi-total">—</div>
+            <div class="kpi-sub" id="kpi-total-sub">Loading...</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Human Detections</div>
+            <div class="kpi-value" id="kpi-human">—</div>
+            <div class="kpi-sub">Last 24 hours</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Clips Downloaded</div>
+            <div class="kpi-value" id="kpi-clips">—</div>
+            <div class="kpi-sub">With S3 URL</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">Active Devices</div>
+            <div class="kpi-value" id="kpi-devices">—</div>
+            <div class="kpi-sub">Linked cameras</div>
+          </div>
+        </div>
+        <div class="section-header">
+          <div class="section-title">Recent Events</div>
+          <button class="btn-ghost" onclick="showPage('events')">View all →</button>
+        </div>
+        <div class="card">
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Time</th><th>Camera</th><th>Type</th><th>AI Summary</th><th>Clip</th>
+              </tr></thead>
+              <tbody id="overview-events-body"><tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:var(--space-8)">Loading events...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Events Page -->
+      <div class="page" id="page-events">
+        <div class="section-header">
+          <div class="section-title">All Motion Events</div>
+          <button class="btn-ghost" onclick="loadEvents()">Refresh</button>
+        </div>
+        <div class="card">
+          <div class="filter-bar">
+            <input type="search" id="event-search" placeholder="Search by camera or summary..." oninput="filterEvents()" />
+            <select id="event-filter-type" onchange="filterEvents()">
+              <option value="">All types</option>
+              <option value="human">Human</option>
+              <option value="animal">Animal</option>
+              <option value="vehicle">Vehicle</option>
+              <option value="unknown">Unknown</option>
+            </select>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Time</th><th>Camera</th><th>Type</th><th>AI Summary</th><th>Notified</th><th>Clip</th>
+              </tr></thead>
+              <tbody id="events-body"><tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:var(--space-8)">Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Devices Page -->
+      <div class="page" id="page-devices">
+        <div class="section-header">
+          <div class="section-title">Linked Devices</div>
+          <button class="btn-ghost" onclick="syncDevices()">Sync from Ring</button>
+        </div>
+        <div class="device-grid" id="device-grid">
+          <div style="color:var(--text-muted);font-size:var(--text-sm)">Loading devices...</div>
+        </div>
+      </div>
+
+      <!-- Settings Page -->
+      <div class="page" id="page-settings">
+        <div class="section-header">
+          <div class="section-title">Settings</div>
+        </div>
+        <div class="card" style="max-width:520px">
+          <div style="padding:var(--space-5);border-bottom:1px solid var(--border)">
+            <div style="font-weight:600;margin-bottom:var(--space-1)">Connection</div>
+            <div style="font-size:var(--text-xs);color:var(--text-muted)">Backend URL</div>
+            <div style="font-size:var(--text-sm);font-family:monospace;color:var(--primary);margin-top:var(--space-1)" id="settings-url"></div>
+          </div>
+          <div style="padding:var(--space-5);border-bottom:1px solid var(--border)">
+            <div style="font-weight:600;margin-bottom:var(--space-3)">Ring Account</div>
+            <a id="link-ring-btn" href="#" class="btn-primary" style="display:inline-flex;align-items:center;gap:var(--space-2);text-decoration:none;padding:var(--space-2) var(--space-4);border-radius:var(--radius-md);font-size:var(--text-sm);width:fit-content">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+              Link Ring Account
+            </a>
+            <p style="font-size:var(--text-xs);color:var(--text-muted);margin-top:var(--space-2)">Opens Ring OAuth to authorize your account.</p>
+          </div>
+          <div style="padding:var(--space-5)">
+            <div style="font-weight:600;margin-bottom:var(--space-3)">Health Check</div>
+            <div id="health-status" style="font-size:var(--text-sm);color:var(--text-muted)">Checking...</div>
+            <button class="btn-ghost" style="margin-top:var(--space-3)" onclick="checkHealth()">Re-check</button>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ── Clip Modal ────────────────────────────────────────── -->
+<div class="modal-overlay" id="clip-modal" onclick="closeModal(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">Motion Event</div>
+      <button class="icon-btn" onclick="closeModalDirect()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-video" id="modal-video-area">
+        <div class="modal-video-placeholder">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 10l4.553-2.069A1 1 0 0121 8.906V17a1 1 0 01-1.447.894L15 16M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>
+          <span>No clip available</span>
+        </div>
+      </div>
+      <div class="modal-meta" id="modal-meta"></div>
+      <div class="modal-summary" id="modal-summary" style="display:none">
+        <strong>🤖 AI Summary</strong>
+        <span id="modal-summary-text"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Toast Container ───────────────────────────────────── -->
+<div class="toast-container" id="toasts"></div>
+
+<script>
+  // ── State ──────────────────────────────────────────────────
+  let API_URL = '';
+  let ADMIN_KEY = '';
+  let allEvents = [];
+  let currentPage = 'overview';
+  let isDark = true;
+
+  // ── Auth ───────────────────────────────────────────────────
+  async function handleLogin() {
+    const url = document.getElementById('login-url').value.trim().replace(/\/$/, '');
+    const key = document.getElementById('login-key').value.trim();
+    const err = document.getElementById('login-error');
+    err.style.display = 'none';
+    if (!url || !key) { err.textContent = 'Please enter both fields.'; err.style.display = 'block'; return; }
+    try {
+      const res = await fetch(`${url}/health`);
+      if (!res.ok) throw new Error('Health check failed');
+      API_URL = url;
+      ADMIN_KEY = key;
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('app').style.display = 'flex';
+      document.getElementById('settings-url').textContent = API_URL;
+      document.getElementById('link-ring-btn').href = `${API_URL}/oauth/link`;
+      loadOverview();
+    } catch (e) {
+      err.style.display = 'block';
+    }
+  }
+
+  function signOut() {
+    API_URL = ''; ADMIN_KEY = '';
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('login-screen').style.display = 'flex';
+    allEvents = [];
+  }
+
+  // ── API helper ─────────────────────────────────────────────
+  async function api(path, opts = {}) {
+    const res = await fetch(`${API_URL}${path}`, {
+      ...opts,
+      headers: { 'x-admin-key': ADMIN_KEY, 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    });
+    if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
+    return res.json();
+  }
+
+  // ── Navigation ─────────────────────────────────────────────
+  function showPage(id) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.getElementById(`page-${id}`).classList.add('active');
+    document.querySelector(`[data-page="${id}"]`)?.classList.add('active');
+    currentPage = id;
+    const titles = { overview: 'Overview', events: 'Motion Events', devices: 'Devices', settings: 'Settings' };
+    document.getElementById('page-title').textContent = titles[id] || id;
+    if (id === 'events') loadEvents();
+    if (id === 'devices') loadDevices();
+    if (id === 'settings') checkHealth();
+  }
+
+  function refreshCurrentPage() { showPage(currentPage); }
+
+  // ── Overview ───────────────────────────────────────────────
+  async function loadOverview() {
+    try {
+      const [evData, devData] = await Promise.all([
+        api('/events?limit=50').catch(() => ({ events: [] })),
+        api('/devices').catch(() => ({ devices: [] })),
+      ]);
+      const events = evData.events || [];
+      const devices = devData.devices || [];
+      allEvents = events;
+
+      const now = Date.now();
+      const last24 = events.filter(e => now - new Date(e.event_timestamp) < 86400000);
+      const humans = last24.filter(e => e.sub_type === 'human').length;
+      const clips  = events.filter(e => e.clip_url).length;
+
+      animateNum('kpi-total', last24.length);
+      animateNum('kpi-human', humans);
+      animateNum('kpi-clips', clips);
+      animateNum('kpi-devices', devices.length);
+
+      document.getElementById('kpi-total-sub').textContent = `${events.length} total all time`;
+
+      const unread = events.filter(e => !e.notified).length;
+      const badge = document.getElementById('unread-badge');
+      badge.textContent = unread;
+      badge.style.display = unread > 0 ? '' : 'none';
+
+      renderEventsTable('overview-events-body', events.slice(0, 8), false);
+    } catch (e) {
+      toast('Could not load overview data', 'error');
+    }
+  }
+
+  // ── Events ─────────────────────────────────────────────────
+  async function loadEvents() {
+    document.getElementById('events-body').innerHTML =
+      `<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:var(--space-8)">Loading...</td></tr>`;
+    try {
+      const data = await api('/events?limit=200').catch(() => ({ events: [] }));
+      allEvents = data.events || [];
+      filterEvents();
+    } catch(e) {
+      toast('Could not load events', 'error');
+    }
+  }
+
+  function filterEvents() {
+    const q = document.getElementById('event-search')?.value.toLowerCase() || '';
+    const type = document.getElementById('event-filter-type')?.value || '';
+    const filtered = allEvents.filter(e => {
+      const matchQ = !q || (e.device_id||'').toLowerCase().includes(q) || (e.ai_summary||'').toLowerCase().includes(q);
+      const matchT = !type || e.sub_type === type;
+      return matchQ && matchT;
+    });
+    renderEventsTable('events-body', filtered, true);
+  }
+
+  function renderEventsTable(tbodyId, events, showNotified) {
+    const tbody = document.getElementById(tbodyId);
+    if (!events.length) {
+      tbody.innerHTML = `<tr><td colspan="${showNotified?6:5}" style="text-align:center;color:var(--text-muted);padding:var(--space-8)">No events found</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = events.map(e => {
+      const time = new Date(e.event_timestamp).toLocaleString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+      const typeBadge = {
+        human: '<span class="badge badge-error">Human</span>',
+        animal: '<span class="badge badge-warning">Animal</span>',
+        vehicle: '<span class="badge badge-primary">Vehicle</span>',
+      }[e.sub_type] || '<span class="badge badge-muted">Motion</span>';
+      const clipCell = e.clip_url
+        ? `<button class="clip-btn" onclick="openClip(${JSON.stringify(e).replace(/"/g,'&quot;')})">
+             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>View
+           </button>`
+        : `<span class="no-clip">—</span>`;
+      const notifiedCell = showNotified
+        ? `<td>${e.notified ? '<span class="dot dot-success"></span>' : '<span class="dot dot-muted"></span>'}</td>`
+        : '';
+      return `<tr>
+        <td style="white-space:nowrap;color:var(--text-muted)">${time}</td>
+        <td><code style="font-size:var(--text-xs);color:var(--primary)">${e.device_id || '—'}</code></td>
+        <td>${typeBadge}</td>
+        <td class="td-summary"><span>${e.ai_summary || '<em style="color:var(--text-faint)">No summary</em>'}</span></td>
+        ${notifiedCell}
+        <td>${clipCell}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ── Devices ────────────────────────────────────────────────
+  async function loadDevices() {
+    const grid = document.getElementById('device-grid');
+    grid.innerHTML = '<div style="color:var(--text-muted);font-size:var(--text-sm)">Loading...</div>';
+    try {
+      const data = await api('/devices');
+      const devices = data.devices || [];
+      if (!devices.length) {
+        grid.innerHTML = `<div style="color:var(--text-muted);font-size:var(--text-sm)">
+          No devices found. <button class="btn-ghost" onclick="syncDevices()" style="margin-left:var(--space-2)">Sync from Ring</button></div>`;
+        return;
+      }
+      grid.innerHTML = devices.map(d => {
+        const evCount = allEvents.filter(e => e.device_id === d.id).length;
+        const lastEvent = allEvents.filter(e => e.device_id === d.id)[0];
+        const lastTime = lastEvent ? new Date(lastEvent.event_timestamp).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : 'Never';
+        return `<div class="device-card">
+          <div class="device-header">
+            <div>
+              <div class="device-name">${d.name || 'Unnamed Camera'}</div>
+              <div class="device-id">${d.id || d.device_id}</div>
+            </div>
+            <span class="badge badge-success">Online</span>
+          </div>
+          <div class="device-meta">
+            <span>Type: ${d.type || 'Camera'}</span>
+            <span>Last event: ${lastTime}</span>
+          </div>
+          <div class="device-stats">
+            <div class="device-stat">
+              <div class="device-stat-val">${evCount}</div>
+              <div class="device-stat-lbl">Events</div>
+            </div>
+            <div class="device-stat">
+              <div class="device-stat-val">${allEvents.filter(e=>e.device_id===d.id&&e.clip_url).length}</div>
+              <div class="device-stat-lbl">Clips</div>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    } catch(e) {
+      grid.innerHTML = '<div style="color:var(--error);font-size:var(--text-sm)">Failed to load devices</div>';
+    }
+  }
+
+  async function syncDevices() {
+    toast('Syncing devices from Ring...', 'info');
+    try {
+      await api('/devices');
+      toast('Devices synced!', 'success');
+      loadDevices();
+    } catch(e) { toast('Sync failed', 'error'); }
+  }
+
+  // ── Health ─────────────────────────────────────────────────
+  async function checkHealth() {
+    const el = document.getElementById('health-status');
+    el.textContent = 'Checking...';
+    try {
+      const data = await fetch(`${API_URL}/health`).then(r => r.json());
+      el.innerHTML = `<span style="color:var(--success)">✓ Online</span> &nbsp;·&nbsp; Uptime: ${Math.floor(data.uptime/60)}m &nbsp;·&nbsp; ${new Date(data.timestamp).toLocaleTimeString()}`;
+      document.getElementById('connection-dot').className = 'dot dot-success';
+      document.getElementById('connection-label').textContent = 'Connected';
+    } catch(e) {
+      el.innerHTML = `<span style="color:var(--error)">✗ Offline</span>`;
+      document.getElementById('connection-dot').className = 'dot dot-error';
+      document.getElementById('connection-label').textContent = 'Disconnected';
+    }
+  }
+
+  // ── Clip Modal ─────────────────────────────────────────────
+  function openClip(event) {
+    document.getElementById('modal-title').textContent =
+      `Motion — ${new Date(event.event_timestamp).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}`;
+    const videoArea = document.getElementById('modal-video-area');
+    videoArea.innerHTML = event.clip_url
+      ? `<video controls autoplay muted src="${event.clip_url}"></video>`
+      : `<div class="modal-video-placeholder"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 10l4.553-2.069A1 1 0 0121 8.906V17a1 1 0 01-1.447.894L15 16M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg><span>No clip available</span></div>`;
+    const type = {human:'Human',animal:'Animal',vehicle:'Vehicle'}[event.sub_type] || 'Motion';
+    document.getElementById('modal-meta').innerHTML = `
+      <div class="modal-meta-item"><div class="modal-meta-label">Camera</div><div class="modal-meta-val">${event.device_id||'—'}</div></div>
+      <div class="modal-meta-item"><div class="modal-meta-label">Detected</div><div class="modal-meta-val">${type}</div></div>
+      <div class="modal-meta-item"><div class="modal-meta-label">Time</div><div class="modal-meta-val">${new Date(event.event_timestamp).toLocaleString()}</div></div>
+      <div class="modal-meta-item"><div class="modal-meta-label">Notified</div><div class="modal-meta-val">${event.notified?'Yes':'No'}</div></div>
+    `;
+    const summaryEl = document.getElementById('modal-summary');
+    if (event.ai_summary) {
+      document.getElementById('modal-summary-text').textContent = event.ai_summary;
+      summaryEl.style.display = 'block';
+    } else { summaryEl.style.display = 'none'; }
+    document.getElementById('clip-modal').classList.add('open');
+  }
+
+  function closeModal(e) { if (e.target === document.getElementById('clip-modal')) closeModalDirect(); }
+  function closeModalDirect() {
+    document.getElementById('clip-modal').classList.remove('open');
+    const v = document.querySelector('#modal-video-area video');
+    if (v) v.pause();
+  }
+
+  // ── Theme ──────────────────────────────────────────────────
+  function toggleTheme() {
+    isDark = !isDark;
+    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+    document.getElementById('theme-btn').innerHTML = isDark
+      ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>'
+      : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>';
+  }
+
+  // ── Toast ──────────────────────────────────────────────────
+  function toast(msg, type = 'info') {
+    const colors = { info: 'var(--text)', success: 'var(--success)', error: 'var(--error)', warning: 'var(--warning)' };
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.style.color = colors[type] || colors.info;
+    el.textContent = msg;
+    document.getElementById('toasts').appendChild(el);
+    setTimeout(() => el.remove(), 3500);
+  }
+
+  // ── Animate numbers ────────────────────────────────────────
+  function animateNum(id, target) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    let start = 0; const dur = 600; const startTime = performance.now();
+    function step(now) {
+      const p = Math.min((now - startTime) / dur, 1);
+      el.textContent = Math.round(p * target);
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  // ── Keyboard shortcuts ─────────────────────────────────────
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeModalDirect();
+  });
+
+  // Allow Enter key on login
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && document.getElementById('login-screen').style.display !== 'none') handleLogin();
+  });
+</script>
+</body>
+</html>

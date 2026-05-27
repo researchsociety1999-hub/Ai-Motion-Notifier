@@ -1,9 +1,11 @@
 require('dotenv').config();
 const express = require('express');
 const helmet = require('helmet');
+const path = require('path');
 const oauthRoutes = require('./routes/oauth');
 const webhookRoutes = require('./routes/webhook');
 const deviceRoutes = require('./routes/devices');
+const eventRoutes = require('./routes/events');
 const { startTokenRefreshJob } = require('./services/tokenManager');
 const requireSecret = require('./middleware/requireSecret');
 const { generalLimiter, oauthLimiter } = require('./middleware/rateLimiter');
@@ -11,35 +13,27 @@ const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
 
-// Security headers
-app.use(helmet());
+// Serve admin dashboard (public folder)
+app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// Trust proxy (required on Railway/Render/Fly for correct IP in rate limiter)
+// Security headers — allow inline scripts for dashboard
+app.use(helmet({ contentSecurityPolicy: false }));
 app.set('trust proxy', 1);
-
 app.use(express.json());
-
-// Apply general rate limit to all routes
 app.use(generalLimiter);
 
-// Routes — OAuth and devices protected by admin secret key
-app.use('/oauth', oauthLimiter, requireSecret, oauthRoutes);
-app.use('/webhooks', webhookRoutes); // Ring calls this — HMAC verified inside
-app.use('/devices', requireSecret, deviceRoutes);
+// Routes
+app.use('/oauth',    oauthLimiter, requireSecret, oauthRoutes);
+app.use('/webhooks', webhookRoutes);
+app.use('/devices',  requireSecret, deviceRoutes);
+app.use('/events',   requireSecret, eventRoutes);
 
-// Health check — publicly accessible (used by Railway/Render uptime checks)
+// Health check
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-  });
+  res.json({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() });
 });
 
-// Global error handler (must be last)
 app.use(errorHandler);
-
-// Start token refresh scheduler (runs every 24 hours)
 startTokenRefreshJob();
 
 const PORT = process.env.PORT || 3000;
