@@ -7,6 +7,7 @@ const { uploadToS3 } = require('../services/storage');
 const { sendPushNotification } = require('../services/notify');
 const { getValidAccessToken } = require('../services/tokenManager');
 const { generateEventSummary } = require('../services/aiSummary');
+const { classifyMotionFrame } = require('../services/aiVision');
 
 /**
  * POST /webhooks/ring
@@ -49,30 +50,67 @@ router.post('/ring', verifyHmac, async (req, res) => {
     const clipKey = `clips/${deviceId}/${timestamp}.mp4`;
     const clipUrl = await uploadToS3(clipBuffer, clipKey);
 
-    // 6. Generate AI summary
+    // 6. Run AI vision classification on the clip/snapshot
+    // Uses the S3 clip URL as image context for GPT-4o Vision
+    const visionResult = await classifyMotionFrame({
+      imageUrl: event.snapshot_url || clipUrl,
+      deviceName,
+      timestamp,
+    });
+    console.log(`[Webhook] Vision: ${visionResult.classification} (${Math.round((visionResult.confidence || 0) * 100)}%) — ${visionResult.description}`);
+
+    // 7. Generate AI summary using vision result for richer context
     const summary = await generateEventSummary({
       subType,
       deviceName,
       timestamp,
       clipUrl,
+      visionResult,
     });
 
-    // 7. Update DB with clip URL and AI summary
+    // 8. Update DB with clip URL, AI summary, and full vision classification
     await db.query(
       `UPDATE motion_events
-       SET clip_url = $1, ai_summary = $2, notified = TRUE
-       WHERE id = $3`,
-      [clipUrl, summary, eventId]
+       SET clip_url              = $1,
+           ai_summary            = $2,
+           ai_classification     = $3,
+           ai_confidence         = $4,
+           ai_description        = $5,
+           ai_threat_level       = $6,
+           ai_source             = $7,
+           notification_priority = $8,
+           notified              = TRUE
+       WHERE id = $9`,
+      [
+        clipUrl,
+        summary,
+        visionResult.classification,
+        visionResult.confidence,
+        visionResult.description,
+        visionResult.threat_level,
+        visionResult.source,
+        visionResult.classification === 'animal' ? 'silent'
+          : visionResult.confidence < 0.4 ? 'silent'
+          : (visionResult.classification === 'person' && new Date(timestamp).getHours() >= 22) ? 'high'
+          : (visionResult.classification === 'person' && new Date(timestamp).getHours() < 6) ? 'high'
+          : visionResult.classification === 'package' ? 'low'
+          : 'medium',
+        eventId,
+      ]
     );
 
-    // 8. Send push notification with AI summary
+    // 9. Send smart push notification (priority routing handled inside notify.js)
     await sendPushNotification({
       title: '🚨 Motion Detected',
       body: summary,
       clipUrl,
+      classification: visionResult.classification,
+      confidence: visionResult.confidence,
+      timestamp,
+      deviceName,
     });
 
-    console.log(`[Webhook] ✅ Event ${eventId} processed. Clip: ${clipUrl}`);
+    console.log(`[Webhook] ✅ Event ${eventId} processed — ${visionResult.classification}, priority stored. Clip: ${clipUrl}`);
   } catch (err) {
     console.error('[Webhook] ❌ Error processing motion event:', err.message);
   }
