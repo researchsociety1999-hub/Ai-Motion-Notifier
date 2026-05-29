@@ -1,30 +1,36 @@
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { createClient } = require('@supabase/supabase-js');
 
-const s3 = new S3Client({
-  region: process.env.AWS_REGION,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  },
-});
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
+
+const BUCKET = 'ring-clips';
 
 /**
- * Upload a buffer to S3 and return the public URL
+ * Upload a buffer to Supabase Storage and return a signed URL
  * @param {Buffer} buffer - File content
- * @param {string} key - S3 object key (path)
- * @returns {string} Public URL of the uploaded clip
+ * @param {string} key - Storage path (e.g. clips/device123/1234567890.mp4)
+ * @returns {string} Signed URL valid for 1 hour
  */
 async function uploadToS3(buffer, key) {
-  const command = new PutObjectCommand({
-    Bucket: process.env.S3_BUCKET_NAME,
-    Key: key,
-    Body: buffer,
-    ContentType: 'video/mp4',
-  });
+  const { error: uploadError } = await supabase.storage
+    .from(BUCKET)
+    .upload(key, buffer, {
+      contentType: 'video/mp4',
+      upsert: true,
+    });
 
-  await s3.send(command);
+  if (uploadError) throw new Error(`Supabase upload failed: ${uploadError.message}`);
 
-  return `https://${process.env.S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+  // Generate a signed URL valid for 1 hour (3600 seconds)
+  const { data, error: urlError } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrl(key, 3600);
+
+  if (urlError) throw new Error(`Supabase signed URL failed: ${urlError.message}`);
+
+  return data.signedUrl;
 }
 
 module.exports = { uploadToS3 };
