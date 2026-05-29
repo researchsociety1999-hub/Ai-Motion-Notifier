@@ -1,6 +1,6 @@
-# Ring AI Motion Notifier
+# AI Motion Notifier
 
-A production-ready Node.js/Express backend that listens for Ring camera motion events via webhooks, downloads the video clip, generates an AI summary, and sends a push notification — all automatically.
+A production-ready Node.js/Express backend that listens for camera motion events via webhooks, downloads the video clip, generates an AI summary, and sends a push notification — all automatically.
 
 ## Features
 - ✅ OAuth 2.0 Ring account linking
