@@ -6,7 +6,6 @@ const oauthRoutes = require('./routes/oauth');
 const webhookRoutes = require('./routes/webhook');
 const deviceRoutes = require('./routes/devices');
 const eventRoutes = require('./routes/events');
-const { startTokenRefreshJob } = require('./services/tokenManager');
 const requireSecret = require('./middleware/requireSecret');
 const { generalLimiter, oauthLimiter } = require('./middleware/rateLimiter');
 const errorHandler = require('./middleware/errorHandler');
@@ -34,11 +33,9 @@ app.get('/health', (req, res) => {
 });
 
 app.use(errorHandler);
-startTokenRefreshJob();
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Ring AI Notifier running on port ${PORT} [${process.env.NODE_ENV || 'development'}]`);
-});
+// NOTE: app.listen() is intentionally NOT called here.
+// - For Vercel serverless: api/index.js exports this app directly.
+// - For local dev: use src/start.js which calls app.listen().
 
 module.exports = app;
