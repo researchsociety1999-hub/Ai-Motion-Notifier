@@ -2,7 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const helmet = require('helmet');
 const path = require('path');
-const oauthRoutes = require('./routes/oauth');
 const webhookRoutes = require('./routes/webhook');
 const deviceRoutes = require('./routes/devices');
 const eventRoutes = require('./routes/events');
@@ -19,8 +18,9 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use(helmet({ contentSecurityPolicy: false }));
 app.set('trust proxy', 1);
 
-// JSON body parser with rawBody capture for HMAC verification
+// JSON body parser with 10MB limit for base64 frames and rawBody capture for HMAC verification
 app.use(express.json({
+  limit: '10mb',
   verify: (req, res, buf) => {
     req.rawBody = buf;
   },
@@ -28,11 +28,16 @@ app.use(express.json({
 
 app.use(generalLimiter);
 
-// Routes
-app.use('/oauth',    oauthLimiter, requireSecret, oauthRoutes);
+// Webhook routes (HMAC verified)
 app.use('/webhooks', webhookRoutes);
-app.use('/devices',  requireSecret, deviceRoutes);
-app.use('/events',   requireSecret, eventRoutes);
+
+// Protected API routes
+app.use('/devices', requireSecret, deviceRoutes);
+app.use('/events',  requireSecret, eventRoutes);
+
+// Note: /oauth routes are deprecated in favor of the local Raspberry Pi bridge.
+// const oauthRoutes = require('./routes/oauth');
+// app.use('/oauth', oauthLimiter, requireSecret, oauthRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
