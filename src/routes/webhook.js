@@ -6,27 +6,26 @@ const { fetchClip, fetchSnapshot } = require('../services/ringApi');
 const { uploadToStorage } = require('../services/storage');
 const { sendPushNotification } = require('../services/notify');
 const { getValidAccessToken } = require('../services/tokenManager');
-const { generateEventSummary } = require('../services/aiSummary');
-const { classifyMotionFrame } = require('../services/aiVision');
+const { analyzeMotion } = require('../services/aiMotionAnalysis');
+const aiConfig = require('../config/ai');
 
 /**
  * POST /webhooks/ring
  * Receives Ring event notifications (motion, doorbell press, etc.)
  */
 router.post('/ring', verifyHmac, async (req, res) => {
-  // Always respond 200 immediately — Ring requires response within 5 seconds
+  // Respond 200 immediately to meet Ring's 5s SLA
   res.status(200).send('OK');
 
   const event = req.body;
   console.log('[Webhook] Ring event received:', JSON.stringify(event, null, 2));
 
-  // Only process motion events
   if (event.type !== 'motion_detected') return;
 
   const { deviceId, timestamp, subType } = event;
 
   try {
-    // 1. Save event to DB with idempotency guard
+    // 1. Save event to DB with idempotency constraint
     const insertResult = await db.query(
       `INSERT INTO motion_events (device_id, event_type, sub_type, event_timestamp)
        VALUES ($1, $2, $3, $4)
@@ -42,69 +41,76 @@ router.post('/ring', verifyHmac, async (req, res) => {
 
     const eventId = insertResult.rows[0].id;
 
-    // 2. Get a valid access token
-    const accessToken = await getValidAccessToken();
-
-    // 3. Resolve device friendly name
+    // 2. Resolve device name
     const devResult = await db.query(
       'SELECT name FROM devices WHERE device_id = $1 LIMIT 1',
       [deviceId]
     );
     const deviceName = devResult.rows[0]?.name || deviceId;
 
-    // 4. Fetch the video clip from Ring
-    const clipBuffer = await fetchClip(deviceId, timestamp, accessToken);
+    // 3. Pre-filter / Debounce: Check for recent activity from the same device within debounce window
+    const recentEvent = await db.query(
+      `SELECT ai_summary, ai_classification, ai_confidence, ai_description, ai_threat_level, notification_priority
+       FROM motion_events
+       WHERE device_id = $1
+         AND id != $2
+         AND event_timestamp >= ($3::timestamptz - INTERVAL '${aiConfig.debounceSeconds} seconds')
+         AND ai_classification IS NOT NULL
+       ORDER BY event_timestamp DESC
+       LIMIT 1`,
+      [deviceId, eventId, new Date(timestamp)]
+    );
 
-    // 5. Upload clip to Supabase Storage
-    const clipKey = `clips/${deviceId}/${timestamp}.mp4`;
-    const clipUrl = await uploadToStorage(clipBuffer, clipKey);
+    let aiResult;
+    let clipUrl = null;
 
-    // 6. Resolve snapshot / frame for AI vision
-    let visionResult;
-    if (event.snapshot_url) {
-      visionResult = await classifyMotionFrame({
+    if (recentEvent.rows.length > 0) {
+      const prior = recentEvent.rows[0];
+      console.log(`[Webhook] Debounced: Recent motion on ${deviceId} within ${aiConfig.debounceSeconds}s — reusing prior classification`);
+      aiResult = {
+        classification: prior.ai_classification,
+        confidence: prior.ai_confidence,
+        description: prior.ai_description,
+        threat_level: prior.ai_threat_level,
+        summary: prior.ai_summary,
+        source: 'debounced_reuse',
+        tier: 'debounce',
+      };
+    } else {
+      // 4. Token & media retrieval
+      const accessToken = await getValidAccessToken();
+
+      // Retrieve clip
+      const clipBuffer = await fetchClip(deviceId, timestamp, accessToken);
+      const clipKey = `clips/${deviceId}/${timestamp}.mp4`;
+      clipUrl = await uploadToStorage(clipBuffer, clipKey);
+
+      // Resolve snapshot image
+      let snapshotBase64 = null;
+      if (!event.snapshot_url) {
+        try {
+          const snapshotBuffer = await fetchSnapshot(deviceId, accessToken);
+          if (snapshotBuffer && snapshotBuffer.length > 0) {
+            snapshotBase64 = snapshotBuffer.toString('base64');
+          }
+        } catch (snapErr) {
+          console.warn('[Webhook] Snapshot fetch failed:', snapErr.message);
+        }
+      }
+
+      // 5. Single combined AI analysis (Vision + Summary via tiered OpenRouter)
+      aiResult = await analyzeMotion({
         imageUrl: event.snapshot_url,
+        imageBase64: snapshotBase64,
+        subType,
         deviceName,
         timestamp,
       });
-    } else {
-      try {
-        const snapshotBuffer = await fetchSnapshot(deviceId, accessToken);
-        if (snapshotBuffer && snapshotBuffer.length > 0) {
-          visionResult = await classifyMotionFrame({
-            imageBase64: snapshotBuffer.toString('base64'),
-            deviceName,
-            timestamp,
-          });
-        }
-      } catch (snapErr) {
-        console.warn('[Webhook] Snapshot fetch not available:', snapErr.message);
-      }
-
-      if (!visionResult) {
-        console.log('[Webhook] No image snapshot available — marking ai_source as skipped_no_image');
-        visionResult = {
-          classification: subType ? (subType === 'human' ? 'person' : subType) : 'unknown',
-          confidence: 0,
-          description: `Motion detected (${subType || 'motion'})`,
-          threat_level: 'none',
-          source: 'skipped_no_image',
-        };
-      }
     }
 
-    console.log(`[Webhook] Vision: ${visionResult.classification} (${Math.round((visionResult.confidence || 0) * 100)}%) [source: ${visionResult.source}]`);
+    console.log(`[Webhook] AI Output: ${aiResult.classification} (${Math.round((aiResult.confidence || 0) * 100)}%) [source: ${aiResult.source}]`);
 
-    // 7. Generate AI summary using vision result for context
-    const summary = await generateEventSummary({
-      subType,
-      deviceName,
-      timestamp,
-      clipUrl,
-      visionResult,
-    });
-
-    // 8. Update DB with clip URL, AI summary, and vision classification
+    // 6. Update database record
     await db.query(
       `UPDATE motion_events
        SET clip_url              = $1,
@@ -119,33 +125,33 @@ router.post('/ring', verifyHmac, async (req, res) => {
        WHERE id = $9`,
       [
         clipUrl,
-        summary,
-        visionResult.classification,
-        visionResult.confidence,
-        visionResult.description,
-        visionResult.threat_level,
-        visionResult.source,
-        visionResult.classification === 'animal' ? 'silent'
-          : visionResult.confidence < 0.4 && visionResult.source === 'gpt-4o-vision' ? 'silent'
-          : (visionResult.classification === 'person' && (new Date(timestamp).getHours() >= 22 || new Date(timestamp).getHours() < 6)) ? 'high'
-          : visionResult.classification === 'package' ? 'low'
+        aiResult.summary,
+        aiResult.classification,
+        aiResult.confidence,
+        aiResult.description,
+        aiResult.threat_level,
+        aiResult.source,
+        aiResult.classification === 'animal' ? 'silent'
+          : aiResult.confidence < 0.4 && aiResult.source.startsWith('openrouter') ? 'silent'
+          : (aiResult.classification === 'person' && (new Date(timestamp).getHours() >= 22 || new Date(timestamp).getHours() < 6)) ? 'high'
+          : aiResult.classification === 'package' ? 'low'
           : 'medium',
         eventId,
       ]
     );
 
-    // 9. Send smart push notification
+    // 7. Send smart push notification
     await sendPushNotification({
       title: '🚨 Motion Detected',
-      body: summary,
+      body: aiResult.summary,
       clipUrl,
-      classification: visionResult.classification,
-      confidence: visionResult.confidence,
+      classification: aiResult.classification,
+      confidence: aiResult.confidence,
       timestamp,
       deviceName,
     });
 
-    console.log(`[Webhook] ✅ Event ${eventId} processed. Priority stored. Clip: ${clipUrl}`);
+    console.log(`[Webhook] ✅ Event ${eventId} completed. Source: ${aiResult.source}`);
   } catch (err) {
     console.error('[Webhook] ❌ Error processing motion event:', err.message);
   }
