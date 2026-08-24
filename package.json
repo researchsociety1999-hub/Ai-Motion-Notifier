@@ -1,15 +1,18 @@
 {
   "name": "ai-motion-notifier",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "AI-powered motion event webhook backend with push notifications",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/start.js",
     "dev": "nodemon src/start.js",
-    "vercel-dev": "vercel dev"
+    "vercel-dev": "vercel dev",
+    "test": "node --test test/**/*.test.js",
+    "lint": "node --check src/server.js && node --check src/middleware/verifyHmac.js && node --check src/routes/webhook.js && node --check src/routes/oauth.js && node --check src/services/tokenManager.js && node --check src/utils/tokenCrypto.js",
+    "typecheck": "echo 'No TypeScript in this package; syntax check via npm run lint'"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",

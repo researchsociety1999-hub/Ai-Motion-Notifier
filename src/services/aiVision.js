@@ -1,18 +1,9 @@
 const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
 
 /**
  * AI Vision Classification Service
- * Analyzes a Ring camera snapshot/frame using OpenAI GPT-4o Vision
- * Returns structured classification: type, confidence, description
- *
- * @param {object} opts
- * @param {string} [opts.imageUrl]    - Public URL of a snapshot/frame (preferred)
- * @param {string} [opts.imageBase64] - Base64-encoded image as fallback
- * @param {string} opts.deviceName    - Camera name for context
- * @param {string} opts.timestamp     - ISO timestamp
- * @returns {VisionResult}
+ * Analyzes a Ring camera snapshot/frame using OpenAI GPT-4o Vision.
+ * Expects an image URL or base64 image — not a video URL.
  */
 async function classifyMotionFrame({ imageUrl, imageBase64, deviceName, timestamp }) {
   if (!process.env.OPENAI_API_KEY) {
@@ -25,9 +16,18 @@ async function classifyMotionFrame({ imageUrl, imageBase64, deviceName, timestam
     return buildFallbackClassification();
   }
 
+  // Guard: refuse obvious video URLs (vision models expect images)
+  if (imageUrl && /\.mp4(\?|$)/i.test(imageUrl)) {
+    console.warn('[aiVision] Refusing video URL as vision input');
+    return buildFallbackClassification();
+  }
+
   const imageContent = imageUrl
     ? { type: 'image_url', image_url: { url: imageUrl, detail: 'low' } }
-    : { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}`, detail: 'low' } };
+    : {
+        type: 'image_url',
+        image_url: { url: `data:image/jpeg;base64,${imageBase64}`, detail: 'low' },
+      };
 
   const prompt = [
     'You are a home security AI. Analyze this camera snapshot and classify what triggered the motion.',
@@ -51,10 +51,7 @@ async function classifyMotionFrame({ imageUrl, imageBase64, deviceName, timestam
         messages: [
           {
             role: 'user',
-            content: [
-              { type: 'text', text: prompt },
-              imageContent,
-            ],
+            content: [{ type: 'text', text: prompt }, imageContent],
           },
         ],
         max_tokens: 150,
@@ -72,7 +69,6 @@ async function classifyMotionFrame({ imageUrl, imageBase64, deviceName, timestam
     const raw = res.data.choices?.[0]?.message?.content?.trim();
     if (!raw) return buildFallbackClassification();
 
-    // Strip any accidental markdown code fences
     const cleaned = raw.replace(/```json?\n?|```/g, '').trim();
     const parsed = JSON.parse(cleaned);
 
@@ -89,10 +85,6 @@ async function classifyMotionFrame({ imageUrl, imageBase64, deviceName, timestam
   }
 }
 
-/**
- * Map a Ring sub_type string to our classification schema
- * Used when no image is available but Ring provides its own detection
- */
 function mapRingSubType(subType) {
   const map = {
     human: 'person',

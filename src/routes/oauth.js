@@ -2,6 +2,12 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const db = require('../db');
+const { encryptToken } = require('../utils/tokenCrypto');
+
+/**
+ * Single-account-per-install model: account_slot = 1 is the only row.
+ * ON CONFLICT (account_slot) updates tokens instead of inserting duplicates.
+ */
 
 /**
  * GET /oauth/link
@@ -41,13 +47,18 @@ router.get('/callback', async (req, res) => {
     const { access_token, refresh_token, expires_in } = response.data;
     const expiresAt = new Date(Date.now() + expires_in * 1000);
 
-    // Save tokens to DB (upsert by account)
+    const encAccess = encryptToken(access_token);
+    const encRefresh = encryptToken(refresh_token);
+
     await db.query(
-      `INSERT INTO ring_accounts (access_token, refresh_token, expires_at)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (id) DO UPDATE
-       SET access_token = $1, refresh_token = $2, expires_at = $3`,
-      [access_token, refresh_token, expiresAt]
+      `INSERT INTO ring_accounts (account_slot, access_token, refresh_token, expires_at)
+       VALUES (1, $1, $2, $3)
+       ON CONFLICT (account_slot) DO UPDATE
+       SET access_token = EXCLUDED.access_token,
+           refresh_token = EXCLUDED.refresh_token,
+           expires_at = EXCLUDED.expires_at,
+           updated_at = NOW()`,
+      [encAccess, encRefresh, expiresAt]
     );
 
     res.json({ message: 'Ring account linked successfully!' });

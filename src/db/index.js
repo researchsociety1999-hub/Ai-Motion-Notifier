@@ -9,5 +9,6 @@ pool.on('error', (err) => {
 });
 
 module.exports = {
+  pool,
   query: (text, params) => pool.query(text, params),
 };
