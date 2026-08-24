@@ -1,77 +1,51 @@
 const axios = require('axios');
 const cron = require('node-cron');
 const db = require('../db');
-const { encryptToken, decryptToken } = require('../utils/tokenCrypto');
+const { encryptToken, decryptToken } = require('./crypto');
 
-// In-process single-flight: one concurrent refresh per account id
-const refreshInFlight = new Map();
+let refreshPromise = null;
 
 /**
  * Get a valid access token, refreshing it if it expires within 10 minutes.
- * Uses SELECT ... FOR UPDATE to serialize concurrent refreshers at the DB,
- * plus an in-process mutex for same-instance races.
+ * Uses single-flight locking to prevent concurrent token refresh race conditions.
  */
 async function getValidAccessToken() {
-  const client = await db.pool.connect();
-  try {
-    await client.query('BEGIN');
+  const result = await db.query(
+    `SELECT id, access_token, refresh_token, expires_at
+     FROM ring_accounts
+     ORDER BY id DESC LIMIT 1`
+  );
 
-    const result = await client.query(
-      `SELECT id, access_token, refresh_token, expires_at
-       FROM ring_accounts
-       WHERE account_slot = 1
-       ORDER BY id DESC
-       LIMIT 1
-       FOR UPDATE`
-    );
+  if (!result.rows.length) throw new Error('No Ring account linked');
 
-    if (!result.rows.length) {
-      await client.query('ROLLBACK');
-      throw new Error('No Ring account linked');
+  const account = result.rows[0];
+  const expiresAt = new Date(account.expires_at);
+  const tenMinutesFromNow = new Date(Date.now() + 10 * 60 * 1000);
+
+  // If token expires within 10 minutes, refresh it
+  if (expiresAt <= tenMinutesFromNow) {
+    if (!refreshPromise) {
+      refreshPromise = refreshToken(account).finally(() => {
+        refreshPromise = null;
+      });
     }
-
-    const account = result.rows[0];
-    const expiresAt = new Date(account.expires_at);
-    const tenMinutesFromNow = new Date(Date.now() + 10 * 60 * 1000);
-
-    if (expiresAt > tenMinutesFromNow) {
-      await client.query('COMMIT');
-      return decryptToken(account.access_token);
-    }
-
-    // Single-flight by account id
-    if (refreshInFlight.has(account.id)) {
-      await client.query('COMMIT');
-      return refreshInFlight.get(account.id);
-    }
-
-    const promise = refreshTokenWithClient(client, account)
-      .finally(() => refreshInFlight.delete(account.id));
-    refreshInFlight.set(account.id, promise);
-
-    const token = await promise;
-    await client.query('COMMIT');
-    return token;
-  } catch (err) {
-    try {
-      await client.query('ROLLBACK');
-    } catch (_) {
-      /* ignore */
-    }
-    throw err;
-  } finally {
-    client.release();
+    return refreshPromise;
   }
+
+  return decryptToken(account.access_token);
 }
 
-async function refreshTokenWithClient(client, account) {
-  const plainRefresh = decryptToken(account.refresh_token);
+/**
+ * Refresh an expired or near-expiring Ring access token
+ */
+async function refreshToken(account) {
+  const plainRefreshToken = decryptToken(account.refresh_token);
 
   const res = await axios.post(
-    process.env.RING_OAUTH_URL,
+    process.env.RING_OAUTH_URL || 'https://oauth.ring.com/oauth/token',
     new URLSearchParams({
       grant_type: 'refresh_token',
-      refresh_token: plainRefresh,
+      refresh_token: plainRefreshToken,
       client_id: process.env.RING_CLIENT_ID,
       client_secret: process.env.RING_CLIENT_SECRET,
     }),
@@ -79,21 +53,24 @@ async function refreshTokenWithClient(client, account) {
   );
 
   const { access_token, refresh_token, expires_in } = res.data;
-  const expiresAt = new Date(Date.now() + expires_in * 1000);
+  const expiresAt = new Date(Date.now() + (expires_in || 3600) * 1000);
 
-  await client.query(
+  const encryptedAccess = encryptToken(access_token);
+  const encryptedRefresh = encryptToken(refresh_token);
+
+  await db.query(
     `UPDATE ring_accounts
      SET access_token = $1, refresh_token = $2, expires_at = $3, updated_at = NOW()
      WHERE id = $4`,
-    [encryptToken(access_token), encryptToken(refresh_token), expiresAt, account.id]
+    [encryptedAccess, encryptedRefresh, expiresAt, account.id]
   );
 
-  console.log('Ring access token refreshed');
+  console.log('✅ Ring access token refreshed and encrypted in database');
   return access_token;
 }
 
 /**
- * Background job: refresh all tokens every 24 hours (long-running hosts only)
+ * Background job: refresh all tokens every 24 hours (for non-serverless dev runtimes)
  */
 function startTokenRefreshJob() {
   cron.schedule('0 */24 * * *', async () => {

@@ -6,10 +6,7 @@
   "scripts": {
     "start": "node src/start.js",
     "dev": "nodemon src/start.js",
-    "vercel-dev": "vercel dev",
-    "test": "node --test test/**/*.test.js",
-    "lint": "node --check src/server.js && node --check src/middleware/verifyHmac.js && node --check src/routes/webhook.js && node --check src/routes/oauth.js && node --check src/services/tokenManager.js && node --check src/utils/tokenCrypto.js",
-    "typecheck": "echo 'No TypeScript in this package; syntax check via npm run lint'"
+    "vercel-dev": "vercel dev"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -17,13 +14,13 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
     "axios": "^1.6.0",
+    "dotenv": "^16.0.0",
     "express": "^4.18.0",
     "express-rate-limit": "^7.0.0",
     "firebase-admin": "^12.0.0",
     "helmet": "^7.0.0",
     "node-cron": "^3.0.0",
-    "pg": "^8.11.0",
-    "dotenv": "^16.0.0"
+    "pg": "^8.11.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.0"

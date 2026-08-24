@@ -6,33 +6,35 @@ const supabase = createClient(
 );
 
 const BUCKET = 'ring-clips';
-/** Signed URL TTL: 24 hours */
-const SIGNED_URL_TTL_SECONDS = 24 * 60 * 60;
 
 /**
  * Upload a buffer to Supabase Storage and return a signed URL
  * @param {Buffer} buffer - File content
  * @param {string} key - Storage path (e.g. clips/device123/1234567890.mp4)
- * @returns {string} Signed URL valid for SIGNED_URL_TTL_SECONDS
+ * @param {number} [expiresIn=86400] - Signed URL TTL in seconds (default 24 hours)
+ * @returns {string} Signed URL valid for 24 hours
  */
-async function uploadToSupabaseStorage(buffer, key) {
-  const { error: uploadError } = await supabase.storage.from(BUCKET).upload(key, buffer, {
-    contentType: 'video/mp4',
-    upsert: true,
-  });
+async function uploadToStorage(buffer, key, expiresIn = 86400) {
+  const { error: uploadError } = await supabase.storage
+    .from(BUCKET)
+    .upload(key, buffer, {
+      contentType: 'video/mp4',
+      upsert: true,
+    });
 
-  if (uploadError) throw new Error(`Supabase upload failed: ${uploadError.message}`);
+  if (uploadError) throw new Error(`Supabase storage upload failed: ${uploadError.message}`);
 
+  // Generate a signed URL valid for 24 hours (86400 seconds)
   const { data, error: urlError } = await supabase.storage
     .from(BUCKET)
-    .createSignedUrl(key, SIGNED_URL_TTL_SECONDS);
+    .createSignedUrl(key, expiresIn);
 
   if (urlError) throw new Error(`Supabase signed URL failed: ${urlError.message}`);
 
   return data.signedUrl;
 }
 
-// Backward-compatible alias (deprecated)
-const uploadToS3 = uploadToSupabaseStorage;
-
-module.exports = { uploadToSupabaseStorage, uploadToS3 };
+module.exports = {
+  uploadToStorage,
+  uploadToS3: uploadToStorage,
+};

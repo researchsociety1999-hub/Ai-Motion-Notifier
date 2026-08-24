@@ -2,12 +2,7 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const db = require('../db');
-const { encryptToken } = require('../utils/tokenCrypto');
-
-/**
- * Single-account-per-install model: account_slot = 1 is the only row.
- * ON CONFLICT (account_slot) updates tokens instead of inserting duplicates.
- */
+const { encryptToken } = require('../services/crypto');
 
 /**
  * GET /oauth/link
@@ -33,7 +28,7 @@ router.get('/callback', async (req, res) => {
 
   try {
     const response = await axios.post(
-      process.env.RING_OAUTH_URL,
+      process.env.RING_OAUTH_URL || 'https://oauth.ring.com/oauth/token',
       new URLSearchParams({
         grant_type: 'authorization_code',
         code,
@@ -45,20 +40,21 @@ router.get('/callback', async (req, res) => {
     );
 
     const { access_token, refresh_token, expires_in } = response.data;
-    const expiresAt = new Date(Date.now() + expires_in * 1000);
+    const expiresAt = new Date(Date.now() + (expires_in || 3600) * 1000);
 
-    const encAccess = encryptToken(access_token);
-    const encRefresh = encryptToken(refresh_token);
+    const encryptedAccess = encryptToken(access_token);
+    const encryptedRefresh = encryptToken(refresh_token);
 
+    // Save tokens to DB (upsert singleton row)
     await db.query(
-      `INSERT INTO ring_accounts (account_slot, access_token, refresh_token, expires_at)
-       VALUES (1, $1, $2, $3)
-       ON CONFLICT (account_slot) DO UPDATE
+      `INSERT INTO ring_accounts (access_token, refresh_token, expires_at, singleton)
+       VALUES ($1, $2, $3, TRUE)
+       ON CONFLICT (singleton) DO UPDATE
        SET access_token = EXCLUDED.access_token,
            refresh_token = EXCLUDED.refresh_token,
            expires_at = EXCLUDED.expires_at,
            updated_at = NOW()`,
-      [encAccess, encRefresh, expiresAt]
+      [encryptedAccess, encryptedRefresh, expiresAt]
     );
 
     res.json({ message: 'Ring account linked successfully!' });

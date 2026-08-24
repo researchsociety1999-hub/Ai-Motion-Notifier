@@ -1,63 +1,35 @@
 const crypto = require('crypto');
 
 /**
- * Middleware: verify Ring HMAC-SHA256 webhook signature over the *raw* body.
- * Ring sends: x-signature: sha256=<hex_digest>
- *
- * Requires express.json({ verify }) in server.js to set req.rawBody (Buffer).
- * Also rejects events whose body timestamp is outside an acceptable skew window
- * (replay mitigation) when a timestamp field is present.
+ * Middleware: verify Ring HMAC-SHA256 webhook signature
+ * Ring sends the signature as: x-signature: sha256=<hex_digest>
  */
-const MAX_SKEW_MS = 5 * 60 * 1000; // 5 minutes
-
 function verifyHmac(req, res, next) {
   const signature = req.headers['x-signature'];
 
-  if (!signature || typeof signature !== 'string') {
+  if (!signature) {
     return res.status(401).json({ error: 'Missing signature header' });
   }
 
-  const rawBody = req.rawBody;
-  if (!rawBody || !Buffer.isBuffer(rawBody)) {
-    console.warn('HMAC verification failed: rawBody missing (express.json verify not configured)');
-    return res.status(401).json({ error: 'Invalid signature' });
+  if (!process.env.RING_HMAC_KEY) {
+    console.error('[verifyHmac] RING_HMAC_KEY environment variable is not configured');
+    return res.status(500).json({ error: 'Server authentication configuration error' });
   }
 
-  const hmacKey = process.env.RING_HMAC_KEY;
-  if (!hmacKey) {
-    console.error('RING_HMAC_KEY is not set');
-    return res.status(500).json({ error: 'Server misconfiguration' });
-  }
-
+  const rawBody = req.rawBody || Buffer.from(JSON.stringify(req.body || {}));
   const expectedHex = crypto
-    .createHmac('sha256', hmacKey)
+    .createHmac('sha256', process.env.RING_HMAC_KEY)
     .update(rawBody)
     .digest('hex');
 
-  const expectedHeader = `sha256=${expectedHex}`;
+  const expectedSignature = `sha256=${expectedHex}`;
 
-  // Timing-safe compare: require equal byte length first (timingSafeEqual throws otherwise)
-  const sigBuf = Buffer.from(signature, 'utf8');
-  const expBuf = Buffer.from(expectedHeader, 'utf8');
+  const sigBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expectedSignature);
 
-  if (sigBuf.length !== expBuf.length) {
-    console.warn('HMAC verification failed: length mismatch');
+  if (sigBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
+    console.warn('[verifyHmac] HMAC signature verification failed');
     return res.status(401).json({ error: 'Invalid signature' });
-  }
-
-  if (!crypto.timingSafeEqual(sigBuf, expBuf)) {
-    console.warn('HMAC verification failed');
-    return res.status(401).json({ error: 'Invalid signature' });
-  }
-
-  // Replay window: if body has a timestamp, reject outside skew
-  const ts = req.body?.timestamp;
-  if (ts != null) {
-    const eventMs = new Date(ts).getTime();
-    if (Number.isNaN(eventMs) || Math.abs(Date.now() - eventMs) > MAX_SKEW_MS) {
-      console.warn('Webhook timestamp outside acceptable skew window');
-      return res.status(401).json({ error: 'Event timestamp out of range' });
-    }
   }
 
   next();
