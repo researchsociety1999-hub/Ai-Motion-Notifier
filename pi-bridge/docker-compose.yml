@@ -1,0 +1,63 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    container_name: ring-mosquitto
+    restart: unless-stopped
+    volumes:
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    command: >
+      sh -c '
+        echo "listener 1883 0.0.0.0" > /mosquitto/config/mosquitto.conf &&
+        echo "allow_anonymous true" >> /mosquitto/config/mosquitto.conf &&
+        /usr/sbin/mosquitto -c /mosquitto/config/mosquitto.conf
+      '
+    networks:
+      - ring-internal
+
+  ring-mqtt:
+    image: tsightler/ring-mqtt:latest
+    container_name: ring-mqtt
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    environment:
+      - MQTTHOST=mosquitto
+      - MQTTPORT=1883
+      - RINGTOKEN=${RINGTOKEN}
+      - ENABLECAMERAS=true
+      - SNAPSHOTMODE=all
+    volumes:
+      - ring_data:/data
+    ports:
+      - "127.0.0.1:55123:55123" # Web UI for generating Ring token
+      - "127.0.0.1:8554:8554"   # RTSP Stream port (optional host check)
+    networks:
+      - ring-internal
+
+  ring-ai-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ring-ai-bridge
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+      - ring-mqtt
+    environment:
+      - MQTT_BROKER_URL=mqtt://mosquitto:1883
+      - BACKEND_WEBHOOK_URL=${BACKEND_WEBHOOK_URL:-https://ai-motion-notifier.vercel.app/webhooks/local-motion}
+      - PI_BRIDGE_SECRET=${PI_BRIDGE_SECRET}
+      - GO2RTC_HTTP_URL=http://ring-mqtt:1984/api/frame.jpeg?src=
+      - RTSP_STREAM_BASE=rtsp://ring-mqtt:8554/
+    networks:
+      - ring-internal
+
+networks:
+  ring-internal:
+    driver: bridge
+
+volumes:
+  mosquitto_data:
+  mosquitto_log:
+  ring_data:
