@@ -11,6 +11,12 @@ const BACKEND_URL = process.env.BACKEND_WEBHOOK_URL || 'https://ai-motion-notifi
 const PI_BRIDGE_SECRET = process.env.PI_BRIDGE_SECRET;
 const GO2RTC_SNAPSHOT_BASE = process.env.GO2RTC_HTTP_URL || 'http://localhost:1984/api/frame.jpeg?src=';
 const RTSP_BASE = process.env.RTSP_STREAM_BASE || 'rtsp://localhost:8554/';
+const CLIP_DURATION = parseInt(process.env.CLIP_DURATION_SECONDS || '10', 10);
+const RECORDINGS_DIR = process.env.RECORDINGS_DIR || path.join(__dirname, 'recordings');
+
+if (!fs.existsSync(RECORDINGS_DIR)) {
+  fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
+}
 
 if (!PI_BRIDGE_SECRET) {
   console.error('[Pi-Bridge] FATAL: PI_BRIDGE_SECRET environment variable is required');
@@ -23,10 +29,12 @@ const client = mqtt.connect(MQTT_BROKER, {
   connectTimeout: 30000,
 });
 
+let isRecording = false;
+
 client.on('connect', () => {
   console.log('[Pi-Bridge] Connected to MQTT broker');
   // Subscribe to all Ring camera motion state topics
-  // Topic pattern from ring-mqtt: ring/<location_id>/camera/<device_id>/motion/state
+  // Topic pattern: ring/<location_id>/camera/<device_id>/motion/state
   client.subscribe('ring/+/camera/+/motion/state', (err) => {
     if (err) console.error('[Pi-Bridge] Subscription error:', err.message);
     else console.log('[Pi-Bridge] Subscribed to Ring motion topics');
@@ -44,15 +52,25 @@ client.on('message', async (topic, message) => {
   // Only trigger on motion state ON
   if (payloadStr.toUpperCase() !== 'ON') return;
 
+  if (isRecording) {
+    console.log('[Pi-Bridge] Already recording a clip — skipping concurrent trigger');
+    return;
+  }
+
   // Extract deviceId from topic: ring/<location_id>/camera/<device_id>/motion/state
   const parts = topic.split('/');
   const deviceId = parts[3] || 'ring_camera';
   const timestamp = new Date().toISOString();
 
-  console.log(`[Pi-Bridge] 🚨 Motion detected on camera: ${deviceId}`);
+  console.log(`[Pi-Bridge] 🚨 Motion detected on camera: ${deviceId}. Recording ${CLIP_DURATION}s clip...`);
 
+  isRecording = true;
   try {
-    const imageBase64 = await captureFrame(deviceId);
+    const { imageBase64, clipPath } = await recordClipAndExtractFrame(deviceId, CLIP_DURATION);
+    if (clipPath) {
+      console.log(`[Pi-Bridge] Clip saved locally: ${clipPath}`);
+    }
+
     await sendLocalMotionEvent({
       deviceId,
       timestamp,
@@ -61,47 +79,62 @@ client.on('message', async (topic, message) => {
     });
   } catch (err) {
     console.error(`[Pi-Bridge] Failed to process motion event for ${deviceId}:`, err.message);
+  } finally {
+    isRecording = false;
   }
 });
 
 /**
- * Capture frame from go2rtc HTTP snapshot API or fallback to ffmpeg RTSP stream
+ * Record a 10s MP4 video clip from RTSP and extract a JPEG frame for AI analysis
  */
-async function captureFrame(deviceId) {
-  // Option 1: Fast HTTP snapshot from go2rtc
-  try {
-    const res = await axios.get(`${GO2RTC_SNAPSHOT_BASE}${deviceId}_live`, {
-      responseType: 'arraybuffer',
-      timeout: 8000,
-    });
-    if (res.data && res.data.length > 0) {
-      console.log(`[Pi-Bridge] Captured frame via go2rtc HTTP (${res.data.length} bytes)`);
-      return Buffer.from(res.data).toString('base64');
-    }
-  } catch (httpErr) {
-    console.warn(`[Pi-Bridge] go2rtc HTTP snapshot failed (${httpErr.message}), falling back to ffmpeg RTSP...`);
-  }
+async function recordClipAndExtractFrame(deviceId, durationSeconds = 10) {
+  const now = Date.now();
+  const clipPath = path.join(RECORDINGS_DIR, `clip_${deviceId}_${now}.mp4`);
+  const snapPath = path.join(RECORDINGS_DIR, `snap_${deviceId}_${now}.jpg`);
+  const rtspUrl = `${RTSP_BASE}${deviceId}_live`;
 
-  // Option 2: Fallback to FFmpeg RTSP extraction
-  return new Promise((resolve, reject) => {
-    const tempFile = path.join('/tmp', `snap_${deviceId}_${Date.now()}.jpg`);
-    const rtspUrl = `${RTSP_BASE}${deviceId}_live`;
-    const cmd = `ffmpeg -y -rtsp_transport tcp -i "${rtspUrl}" -frames:v 1 -q:v 2 "${tempFile}"`;
+  return new Promise((resolve) => {
+    // 1. Record 10s MP4 clip from the local RTSP stream
+    const recordCmd = `ffmpeg -y -rtsp_transport tcp -i "${rtspUrl}" -t ${durationSeconds} -c:v copy -c:a aac "${clipPath}"`;
 
-    exec(cmd, { timeout: 12000 }, (error) => {
+    exec(recordCmd, { timeout: (durationSeconds + 5) * 1000 }, (error) => {
       if (error) {
-        return reject(new Error(`FFmpeg capture error: ${error.message}`));
+        console.warn(`[Pi-Bridge] FFmpeg RTSP recording failed (${error.message}), falling back to go2rtc HTTP snapshot...`);
+        // Fallback: fetch single frame from go2rtc HTTP API so notifications aren't lost
+        return fallbackHttpSnapshot(deviceId)
+          .then((imageBase64) => resolve({ imageBase64, clipPath: null }))
+          .catch(() => resolve({ imageBase64: null, clipPath: null }));
       }
-      try {
-        const data = fs.readFileSync(tempFile);
-        fs.unlinkSync(tempFile);
-        console.log(`[Pi-Bridge] Captured frame via FFmpeg (${data.length} bytes)`);
-        resolve(data.toString('base64'));
-      } catch (readErr) {
-        reject(readErr);
-      }
+
+      // 2. Extract 1 thumbnail JPEG frame from the recorded clip for AI vision
+      const snapCmd = `ffmpeg -y -ss 00:00:01 -i "${clipPath}" -frames:v 1 -q:v 2 "${snapPath}"`;
+      exec(snapCmd, { timeout: 6000 }, (snapErr) => {
+        let imageBase64 = null;
+        if (!snapErr && fs.existsSync(snapPath)) {
+          try {
+            imageBase64 = fs.readFileSync(snapPath).toString('base64');
+          } catch (e) {
+            console.warn('[Pi-Bridge] Error reading thumbnail frame:', e.message);
+          }
+        }
+        resolve({ imageBase64, clipPath });
+      });
     });
   });
+}
+
+/**
+ * Fallback snapshot capture from go2rtc HTTP API
+ */
+async function fallbackHttpSnapshot(deviceId) {
+  const res = await axios.get(`${GO2RTC_SNAPSHOT_BASE}${deviceId}_live`, {
+    responseType: 'arraybuffer',
+    timeout: 8000,
+  });
+  if (res.data && res.data.length > 0) {
+    return Buffer.from(res.data).toString('base64');
+  }
+  return null;
 }
 
 /**

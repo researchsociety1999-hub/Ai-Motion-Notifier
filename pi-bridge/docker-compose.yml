@@ -50,6 +50,10 @@ services:
       - PI_BRIDGE_SECRET=${PI_BRIDGE_SECRET}
       - GO2RTC_HTTP_URL=http://ring-mqtt:1984/api/frame.jpeg?src=
       - RTSP_STREAM_BASE=rtsp://ring-mqtt:8554/
+      - CLIP_DURATION_SECONDS=10
+      - RECORDINGS_DIR=/app/recordings
+    volumes:
+      - ./recordings:/app/recordings
     networks:
       - ring-internal
 
